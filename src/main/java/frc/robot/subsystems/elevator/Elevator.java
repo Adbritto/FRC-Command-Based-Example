@@ -21,16 +21,16 @@ public class Elevator extends SubsystemBase {
 
   @AutoLogOutput
   public Command runElevatorToPos(Distance target) {
-    return startEnd(() -> io.runPosition(target), () -> io.stop());
+    return startEnd(() -> io.runPosition(target), io::stop);
   }
 
   @AutoLogOutput
   public Command runElevatorVolts(double volts) {
-    return startEnd(() -> io.runVolts(volts), () -> io.stop());
+    return startEnd(() -> io.runVolts(volts), io::stop);
   }
 
   @AutoLogOutput
   public Command runElevatorOpenLoop(double output) {
-    return startEnd(() -> io.runOpenLoop(output), () -> io.stop());
+    return startEnd(() -> io.runOpenLoop(output), io::stop);
   }
 }
