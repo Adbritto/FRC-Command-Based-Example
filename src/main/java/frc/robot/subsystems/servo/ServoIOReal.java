@@ -1,6 +1,7 @@
 package frc.robot.subsystems.servo;
 
 import edu.wpi.first.wpilibj.Servo;
+import frc.robot.constants.Constants;
 
 public class ServoIOReal implements ServoIO {
   final Servo servo;
@@ -12,5 +13,13 @@ public class ServoIOReal implements ServoIO {
   @Override
   public void set(double output) {
     servo.set(output);
+  }
+
+  public void open() {
+    set(Constants.FUNNEL_OUTTAKE_POS_ROTS);
+  }
+
+  public void close() {
+    set(Constants.FUNNEL_CLOSED_POS_ROTS);
   }
 }
