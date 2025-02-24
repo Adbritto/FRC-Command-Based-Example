@@ -26,9 +26,6 @@ public class ElevatorIOTalonFX implements ElevatorIO {
   // Hardware
   private final TalonFX elevatorMotor;
 
-  // Config
-  private final TalonFXConfiguration config = new TalonFXConfiguration();
-
   // Motion Magic
   private final MotionMagicVoltage motionRequest = new MotionMagicVoltage(0);
 
@@ -44,7 +41,9 @@ public class ElevatorIOTalonFX implements ElevatorIO {
     elevatorMotor = new TalonFX(13);
 
     // Config Motor
-    config.MotorOutput.NeutralMode = NeutralModeValue.Brake;
+      // Config
+      var config = new TalonFXConfiguration();
+      config.MotorOutput.NeutralMode = NeutralModeValue.Brake;
     config.Slot0 =
         new Slot0Configs()
             .withKP(1.0)
@@ -113,7 +112,6 @@ public class ElevatorIOTalonFX implements ElevatorIO {
   @Override
   public void stop() {
     elevatorMotor.stopMotor();
-    ;
   }
 
   @Override
