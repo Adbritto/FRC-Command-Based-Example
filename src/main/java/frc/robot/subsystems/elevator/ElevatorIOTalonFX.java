@@ -41,9 +41,9 @@ public class ElevatorIOTalonFX implements ElevatorIO {
     elevatorMotor = new TalonFX(13);
 
     // Config Motor
-      // Config
-      var config = new TalonFXConfiguration();
-      config.MotorOutput.NeutralMode = NeutralModeValue.Brake;
+    // Config
+    var config = new TalonFXConfiguration();
+    config.MotorOutput.NeutralMode = NeutralModeValue.Brake;
     config.Slot0 =
         new Slot0Configs()
             .withKP(1.0)
