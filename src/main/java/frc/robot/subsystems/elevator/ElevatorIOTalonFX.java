@@ -14,6 +14,18 @@ import com.ctre.phoenix6.hardware.TalonFX;
 import com.ctre.phoenix6.signals.GravityTypeValue;
 import com.ctre.phoenix6.signals.InvertedValue;
 import com.ctre.phoenix6.signals.NeutralModeValue;
+import edu.wpi.first.math.Nat;
+import edu.wpi.first.math.VecBuilder;
+import edu.wpi.first.math.controller.LinearQuadraticRegulator;
+import edu.wpi.first.math.estimator.KalmanFilter;
+import edu.wpi.first.math.numbers.N1;
+import edu.wpi.first.math.numbers.N2;
+import edu.wpi.first.math.system.LinearSystem;
+import edu.wpi.first.math.system.LinearSystemLoop;
+import edu.wpi.first.math.system.plant.DCMotor;
+import edu.wpi.first.math.system.plant.LinearSystemId;
+import edu.wpi.first.math.trajectory.TrapezoidProfile;
+import edu.wpi.first.math.util.Units;
 import edu.wpi.first.units.measure.Angle;
 import edu.wpi.first.units.measure.AngularVelocity;
 import edu.wpi.first.units.measure.Current;
@@ -23,99 +35,158 @@ import edu.wpi.first.units.measure.Voltage;
 import frc.robot.constants.Constants;
 
 public class ElevatorIOTalonFX implements ElevatorIO {
-  // Hardware
-  private final TalonFX elevatorMotor;
+	// Hardware
+	private final TalonFX elevatorMotor;
 
-  // Motion Magic
-  private final MotionMagicVoltage motionRequest = new MotionMagicVoltage(0);
+	// Motion Magic
+	private final MotionMagicVoltage motionRequest = new MotionMagicVoltage(0);
 
-  // Status Signals
-  private final StatusSignal<AngularVelocity> velocity;
-  private final StatusSignal<Angle> position;
-  private final StatusSignal<Current> torqueCurrent;
-  private final StatusSignal<Voltage> appliedVolts;
-  private final StatusSignal<Temperature> temp;
-  private final StatusSignal<Current> supplyCurrent;
+	// Status Signals
+	private final StatusSignal<AngularVelocity> velocity;
+	private final StatusSignal<Angle> position;
+	private final StatusSignal<Current> torqueCurrent;
+	private final StatusSignal<Voltage> appliedVolts;
+	private final StatusSignal<Temperature> temp;
+	private final StatusSignal<Current> supplyCurrent;
 
-  public ElevatorIOTalonFX() {
-    elevatorMotor = new TalonFX(13);
+	private final TrapezoidProfile profile = new TrapezoidProfile(
+			new TrapezoidProfile.Constraints(
+					Units.inchesToMeters(50.21),
+					Units.inchesToMeters(747.43)
+			)
+	);
+	private TrapezoidProfile.State lastState = new TrapezoidProfile.State();
 
-    // Config Motor
-    // Config
-    var config = new TalonFXConfiguration();
-    config.MotorOutput.NeutralMode = NeutralModeValue.Brake;
-    config.Slot0 =
-        new Slot0Configs()
-            .withKP(1.0)
-            .withKI(0.03)
-            .withKD(0.0)
-            .withKS(0.1)
-            .withKV(0.001)
-            .withKG(0.2)
-            .withKA(0)
-            .withGravityType(GravityTypeValue.Elevator_Static);
-    config.MotionMagic =
-        new MotionMagicConfigs()
-            .withMotionMagicCruiseVelocity(600)
-            .withMotionMagicAcceleration(1800)
-            .withMotionMagicExpo_kV(0.12);
-    config.Feedback.SensorToMechanismRatio = 15 / (2 * Math.PI);
-    config.CurrentLimits.StatorCurrentLimit = 80.0;
-    config.MotorOutput.Inverted = InvertedValue.Clockwise_Positive;
-    config.CurrentLimits.StatorCurrentLimitEnable = true;
-    config.SoftwareLimitSwitch =
-        new SoftwareLimitSwitchConfigs()
-            .withForwardSoftLimitEnable(true)
-            .withForwardSoftLimitThreshold(Constants.ELEVATOR_UPPER_THRESHOLD.in(Inches))
-            .withReverseSoftLimitEnable(true)
-            .withReverseSoftLimitThreshold(Constants.ELEVATOR_TARGET_GROUND.in(Inches));
-    elevatorMotor.getConfigurator().apply(config);
+	private final LinearSystem<N2, N1, N2> elevatorSstem = LinearSystemId.createElevatorSystem(
+					DCMotor.getKrakenX60(1),
+					Units.lbsToKilograms(5),
+					Units.inchesToMeters(1.45 / 2),
+					9.0
+	);
 
-    position = elevatorMotor.getPosition();
-    velocity = elevatorMotor.getVelocity();
-    appliedVolts = elevatorMotor.getMotorVoltage();
-    torqueCurrent = elevatorMotor.getTorqueCurrent();
-    supplyCurrent = elevatorMotor.getSupplyCurrent();
-    temp = elevatorMotor.getDeviceTemp();
+	private final KalmanFilter<N2, N1, N1> kalmanFilter = new KalmanFilter<>(
+			Nat.N2(),
+			Nat.N1(),
+			(LinearSystem<N2, N1, N1>) elevatorSstem.slice(0),
+			VecBuilder.fill(Units.inchesToMeters(2), Units.inchesToMeters(40)),
+			VecBuilder.fill(0.001),
+			0.020
+	);
 
-    BaseStatusSignal.setUpdateFrequencyForAll(50.0, position, velocity, appliedVolts, temp);
-    torqueCurrent.setUpdateFrequency(1000);
-    ParentDevice.optimizeBusUtilizationForAll(elevatorMotor);
-  }
+	private final LinearQuadraticRegulator<N2, N1, N1> lqrCon =
+			new LinearQuadraticRegulator<>(
+					(LinearSystem<N2, N1, N1>) elevatorSstem.slice(0),
+					VecBuilder.fill(Units.inchesToMeters(1.0), Units.inchesToMeters(10.0)),
+					VecBuilder.fill(12.0),
+					0.020
+			);
 
-  @Override
-  public void updateInputs(ElevatorIOInputs inputs) {
-    boolean connected =
-        BaseStatusSignal.refreshAll(
-                position, velocity, appliedVolts, torqueCurrent, supplyCurrent, temp)
-            .isOK();
+	private final LinearSystemLoop<N2, N1, N1> loop =
+			new LinearSystemLoop<>(
+					(LinearSystem<N2, N1, N1>) elevatorSstem.slice(0),
+					lqrCon,
+					kalmanFilter,
+					12.0,
+					0.020
+			);
 
-    inputs.motorConnected = connected;
-    inputs.positionInch = position.getValueAsDouble();
-    inputs.velocityInchPerSec = velocity.getValueAsDouble();
-    inputs.appliedVolts = appliedVolts.getValueAsDouble();
-    inputs.torqueCurrentAmps = torqueCurrent.getValueAsDouble();
-    inputs.supplyCurrentAmps = supplyCurrent.getValueAsDouble();
-    inputs.tempCelsius = temp.getValueAsDouble();
-  }
+	public ElevatorIOTalonFX() {
+		elevatorMotor = new TalonFX(13);
 
-  @Override
-  public void runOpenLoop(double output) {
-    elevatorMotor.set(output);
-  }
+		// Config Motor
+		// Config
+		var config = new TalonFXConfiguration();
+		config.MotorOutput.NeutralMode = NeutralModeValue.Brake;
+		config.Slot0 =
+				new Slot0Configs()
+						.withKP(1.0)
+						.withKI(0.03)
+						.withKD(0.0)
+						.withKS(0.1)
+						.withKV(0.001)
+						.withKG(0.2)
+						.withKA(0)
+						.withGravityType(GravityTypeValue.Elevator_Static);
+		config.MotionMagic =
+				new MotionMagicConfigs()
+						.withMotionMagicCruiseVelocity(50.21)
+						.withMotionMagicAcceleration(747.43)
+						.withMotionMagicExpo_kV(0.12);
+		config.Feedback.SensorToMechanismRatio = 9 / (1.45 * Math.PI);
+		config.CurrentLimits.StatorCurrentLimit = 80.0;
+		config.MotorOutput.Inverted = InvertedValue.Clockwise_Positive;
+		config.CurrentLimits.StatorCurrentLimitEnable = true;
+		config.SoftwareLimitSwitch =
+				new SoftwareLimitSwitchConfigs()
+						.withForwardSoftLimitEnable(true)
+						.withForwardSoftLimitThreshold(Constants.ELEVATOR_UPPER_THRESHOLD.in(Inches))
+						.withReverseSoftLimitEnable(true)
+						.withReverseSoftLimitThreshold(Constants.ELEVATOR_TARGET_GROUND.in(Inches));
+		elevatorMotor.getConfigurator().apply(config);
 
-  @Override
-  public void runVolts(double volts) {
-    elevatorMotor.set(volts);
-  }
+		position = elevatorMotor.getPosition();
+		velocity = elevatorMotor.getVelocity();
+		appliedVolts = elevatorMotor.getMotorVoltage();
+		torqueCurrent = elevatorMotor.getTorqueCurrent();
+		supplyCurrent = elevatorMotor.getSupplyCurrent();
+		temp = elevatorMotor.getDeviceTemp();
 
-  @Override
-  public void stop() {
-    elevatorMotor.stopMotor();
-  }
+		BaseStatusSignal.setUpdateFrequencyForAll(50.0, position, velocity, appliedVolts, temp);
+		torqueCurrent.setUpdateFrequency(1000);
+		ParentDevice.optimizeBusUtilizationForAll(elevatorMotor);
+	}
 
-  @Override
-  public void runPosition(Distance pos) {
-    elevatorMotor.setControl(motionRequest.withPosition(pos.in(Inches)));
-  }
+	@Override
+	public void updateInputs(ElevatorIOInputs inputs) {
+		boolean connected =
+				BaseStatusSignal.refreshAll(
+								position, velocity, appliedVolts, torqueCurrent, supplyCurrent, temp)
+						.isOK();
+
+		inputs.motorConnected = connected;
+		inputs.positionInch = position.getValueAsDouble();
+		inputs.velocityInchPerSec = velocity.getValueAsDouble();
+		inputs.appliedVolts = appliedVolts.getValueAsDouble();
+		inputs.torqueCurrentAmps = torqueCurrent.getValueAsDouble();
+		inputs.supplyCurrentAmps = supplyCurrent.getValueAsDouble();
+		inputs.tempCelsius = temp.getValueAsDouble();
+	}
+
+	@Override
+	public void runOpenLoop(double output) {
+		elevatorMotor.set(output);
+	}
+
+	@Override
+	public void runVolts(double volts) {
+		elevatorMotor.set(volts);
+	}
+
+	@Override
+	public void stop() {
+		elevatorMotor.stopMotor();
+	}
+
+	@Override
+	public void runPosition(Distance pos) {
+		TrapezoidProfile.State goal = new TrapezoidProfile.State(pos.in(Inches), 0.0);
+		lastState = profile.calculate(0.020, lastState, goal);
+		loop.setNextR(lastState.position, lastState.velocity);
+		loop.correct(VecBuilder.fill(elevatorMotor.getPosition().getValueAsDouble()));
+		loop.predict(0.020);
+		double nexvolage = loop.getU(0);
+		elevatorMotor.setVoltage(nexvolage);
+
+	}
+
+	@Override
+	public void updateSim() {
+		
+	}
+
+	@Override
+	public void reset() {
+		loop.reset(VecBuilder.fill(elevatorMotor.getPosition().getValueAsDouble(), elevatorMotor.getVelocity().getValueAsDouble()));
+		lastState = new TrapezoidProfile.State(elevatorMotor.getPosition().getValueAsDouble(), elevatorMotor.getVelocity().getValueAsDouble());
+	}
 }
