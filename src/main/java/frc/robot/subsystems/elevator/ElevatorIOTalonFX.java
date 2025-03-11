@@ -36,7 +36,7 @@ import frc.robot.constants.Constants;
 
 public class ElevatorIOTalonFX implements ElevatorIO {
 	// Hardware
-	private final TalonFX elevatorMotor;
+	private final TalonFX elevatorMotor = new TalonFX(13);
 
 	// Motion Magic
 	private final MotionMagicVoltage motionRequest = new MotionMagicVoltage(0);
@@ -49,50 +49,40 @@ public class ElevatorIOTalonFX implements ElevatorIO {
 	private final StatusSignal<Temperature> temp;
 	private final StatusSignal<Current> supplyCurrent;
 
-	private final TrapezoidProfile profile = new TrapezoidProfile(
-			new TrapezoidProfile.Constraints(
-					Units.inchesToMeters(50.21),
-					Units.inchesToMeters(747.43)
-			)
-	);
+	private final TrapezoidProfile profile =
+			new TrapezoidProfile(
+					new TrapezoidProfile.Constraints(
+							Units.inchesToMeters(50.21), Units.inchesToMeters(747.43)));
 	private TrapezoidProfile.State lastState = new TrapezoidProfile.State();
 
-	private final LinearSystem<N2, N1, N2> elevatorSstem = LinearSystemId.createElevatorSystem(
-					DCMotor.getKrakenX60(1),
-					Units.lbsToKilograms(5),
-					Units.inchesToMeters(1.45 / 2),
-					9.0
-	);
+	private final LinearSystem<N2, N1, N2> elevatorSstem =
+			LinearSystemId.createElevatorSystem(
+					DCMotor.getKrakenX60(1), Units.lbsToKilograms(5), Units.inchesToMeters(1.45 / 2), 9.0);
 
-	private final KalmanFilter<N2, N1, N1> kalmanFilter = new KalmanFilter<>(
-			Nat.N2(),
-			Nat.N1(),
-			(LinearSystem<N2, N1, N1>) elevatorSstem.slice(0),
-			VecBuilder.fill(Units.inchesToMeters(2), Units.inchesToMeters(40)),
-			VecBuilder.fill(0.001),
-			0.020
-	);
+	@SuppressWarnings("unchecked")
+	private final KalmanFilter<N2, N1, N1> kalmanFilter =
+			new KalmanFilter<>(
+					Nat.N2(),
+					Nat.N1(),
+					(LinearSystem<N2, N1, N1>) elevatorSstem.slice(0),
+					VecBuilder.fill(Units.inchesToMeters(2), Units.inchesToMeters(40)),
+					VecBuilder.fill(0.001),
+					0.020);
 
+	@SuppressWarnings("unchecked")
 	private final LinearQuadraticRegulator<N2, N1, N1> lqrCon =
 			new LinearQuadraticRegulator<>(
 					(LinearSystem<N2, N1, N1>) elevatorSstem.slice(0),
 					VecBuilder.fill(Units.inchesToMeters(1.0), Units.inchesToMeters(10.0)),
 					VecBuilder.fill(12.0),
-					0.020
-			);
+					0.020);
 
+	@SuppressWarnings("unchecked")
 	private final LinearSystemLoop<N2, N1, N1> loop =
 			new LinearSystemLoop<>(
-					(LinearSystem<N2, N1, N1>) elevatorSstem.slice(0),
-					lqrCon,
-					kalmanFilter,
-					12.0,
-					0.020
-			);
+					(LinearSystem<N2, N1, N1>) elevatorSstem.slice(0), lqrCon, kalmanFilter, 12.0, 0.020);
 
 	public ElevatorIOTalonFX() {
-		elevatorMotor = new TalonFX(13);
-
 		// Config Motor
 		// Config
 		var config = new TalonFXConfiguration();
@@ -174,19 +164,19 @@ public class ElevatorIOTalonFX implements ElevatorIO {
 		loop.setNextR(lastState.position, lastState.velocity);
 		loop.correct(VecBuilder.fill(elevatorMotor.getPosition().getValueAsDouble()));
 		loop.predict(0.020);
-		double nexvolage = loop.getU(0);
-		elevatorMotor.setVoltage(nexvolage);
-
-	}
-
-	@Override
-	public void updateSim() {
-		
+		double voltage = loop.getU(0);
+		elevatorMotor.setVoltage(voltage);
 	}
 
 	@Override
 	public void reset() {
-		loop.reset(VecBuilder.fill(elevatorMotor.getPosition().getValueAsDouble(), elevatorMotor.getVelocity().getValueAsDouble()));
-		lastState = new TrapezoidProfile.State(elevatorMotor.getPosition().getValueAsDouble(), elevatorMotor.getVelocity().getValueAsDouble());
+		loop.reset(
+				VecBuilder.fill(
+						elevatorMotor.getPosition().getValueAsDouble(),
+						elevatorMotor.getVelocity().getValueAsDouble()));
+		lastState =
+				new TrapezoidProfile.State(
+						elevatorMotor.getPosition().getValueAsDouble(),
+						elevatorMotor.getVelocity().getValueAsDouble());
 	}
 }
