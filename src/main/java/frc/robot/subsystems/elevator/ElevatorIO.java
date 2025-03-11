@@ -25,7 +25,5 @@ public interface ElevatorIO {
 
   default void runPosition(Distance positionInches) {}
 
-  default void updateSim() {}
-
   default void reset() {}
 }
