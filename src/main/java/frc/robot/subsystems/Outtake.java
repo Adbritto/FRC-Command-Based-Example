@@ -10,7 +10,7 @@ import frc.robot.subsystems.servo.ServoIOReal;
 import org.littletonrobotics.junction.AutoLogOutput;
 import org.littletonrobotics.junction.Logger;
 
-public class Funnel extends SubsystemBase {
+public class Outtake extends SubsystemBase {
   private final ServoIOReal servoIO;
   private final BreakbeamIOReal breakbeamIO;
   private final String name;
@@ -19,7 +19,7 @@ public class Funnel extends SubsystemBase {
 
   private boolean hasCoral = false;
 
-  public Funnel(ServoIOReal servoIO, BreakbeamIOReal breakbeamIO, String name) {
+  public Outtake(ServoIOReal servoIO, BreakbeamIOReal breakbeamIO, String name) {
     this.servoIO = servoIO;
     this.breakbeamIO = breakbeamIO;
     this.name = name;
