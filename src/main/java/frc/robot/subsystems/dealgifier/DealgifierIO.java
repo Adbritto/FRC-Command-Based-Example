@@ -1,11 +1,7 @@
 package frc.robot.subsystems.dealgifier;
 
 import edu.wpi.first.units.measure.Angle;
-import edu.wpi.first.units.measure.AngularVelocity;
 import org.littletonrobotics.junction.AutoLog;
-
-import static edu.wpi.first.units.Units.Degrees;
-import static edu.wpi.first.units.Units.DegreesPerSecond;
 
 public interface DealgifierIO {
   @AutoLog
